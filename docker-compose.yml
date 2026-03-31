@@ -1,0 +1,74 @@
+# ============================================================
+# Cat Escape Monitor - Docker Compose
+# ============================================================
+# Architecture: Frigate (detection) + Mosquitto (message bus)
+# All ports and addresses are read from .env
+# Usage: docker compose up -d
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # Mosquitto - MQTT message broker
+  # ----------------------------------------------------------
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./config/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./storage/mosquitto/data:/mosquitto/data
+      - ./storage/mosquitto/log:/mosquitto/log
+    networks:
+      - cat-tracker-net
+
+  # ----------------------------------------------------------
+  # Frigate - Core video analysis engine
+  # RTSP pull -> object detection (cat) -> zone check -> MQTT publish
+  #
+  # NOTE: Docker Desktop for Mac cannot use VideoToolbox; using CPU.
+  # After migrating to native Linux, enable HW accel (Coral / OpenVINO / NVIDIA).
+  # ----------------------------------------------------------
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+    ports:
+      - "${FRIGATE_PORT:-5001}:5000"
+      - "8971:8971"
+    volumes:
+      - ./config/frigate/config.yml:/config/config.yml:ro
+      - ./storage/frigate:/media/frigate
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1073741824
+    shm_size: "256mb"
+    environment:
+      # Injected into Frigate config.yml as {FRIGATE_RTSP_URL}
+      - FRIGATE_RTSP_URL=${RTSP_URL}
+    networks:
+      - cat-tracker-net
+
+  # ----------------------------------------------------------
+  # Zone Picker - visual zone coordinate tool
+  # Visit http://localhost:${ZONE_PICKER_PORT} to draw door_zone
+  # ----------------------------------------------------------
+  zone-picker:
+    image: nginx:alpine
+    container_name: zone-picker
+    restart: unless-stopped
+    ports:
+      - "${ZONE_PICKER_PORT:-8090}:80"
+    volumes:
+      - ./zone-picker.html:/usr/share/nginx/html/index.html:ro
+    networks:
+      - cat-tracker-net
+
+networks:
+  cat-tracker-net:
+    driver: bridge

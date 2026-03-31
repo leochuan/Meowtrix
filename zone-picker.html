@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🐱 Door Zone Picker</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 10px; font-size: 1.4em; }
+  .info { text-align: center; color: #aaa; margin-bottom: 15px; font-size: 0.9em; }
+  .container { display: flex; flex-direction: column; align-items: center; gap: 15px; }
+  .canvas-wrap { position: relative; cursor: crosshair; border: 2px solid #444; border-radius: 8px; overflow: hidden; }
+  canvas { display: block; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button { padding: 8px 18px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.9em; transition: 0.2s; }
+  .btn-undo { background: #e94560; color: #fff; }
+  .btn-undo:hover { background: #c73e54; }
+  .btn-clear { background: #555; color: #fff; }
+  .btn-clear:hover { background: #777; }
+  .btn-copy { background: #0f3460; color: #fff; }
+  .btn-copy:hover { background: #16478a; }
+  .output { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 15px; width: 100%; max-width: 700px; }
+  .output label { font-size: 0.85em; color: #aaa; }
+  .output code { display: block; margin-top: 5px; padding: 10px; background: #0d1b3e; border-radius: 4px; font-size: 1em; color: #e94560; word-break: break-all; min-height: 1.5em; }
+  .points-list { font-size: 0.8em; color: #888; margin-top: 8px; }
+  .instructions { background: #16213e; border-radius: 8px; padding: 12px 15px; max-width: 700px; width: 100%; font-size: 0.85em; line-height: 1.6; color: #aaa; }
+  .instructions strong { color: #eee; }
+  .copied { color: #4ecca3 !important; }
+</style>
+</head>
+<body>
+
+<h1>🐱 Door Zone Picker</h1>
+<p class="info">Click on the camera feed to define the door zone polygon, then copy coordinates to Frigate config</p>
+
+<div class="container">
+
+  <div class="instructions">
+    <strong>How to use:</strong><br>
+    1. The latest camera frame from Frigate loads automatically below<br>
+    2. Click to mark the corners of the door zone (at least 3 points, 4-6 recommended)<br>
+    3. Click <strong>"Copy Coords"</strong> and paste into config.yml → door_zone → coordinates<br>
+    4. Run <code style="display:inline;padding:2px 6px;">docker compose restart frigate</code> to apply
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div class="controls">
+    <button class="btn-undo" onclick="undoPoint()">↩ Undo</button>
+    <button class="btn-clear" onclick="clearPoints()">🗑 Clear</button>
+    <button class="btn-copy" onclick="copyCoords()">📋 Copy Coords</button>
+    <button class="btn-copy" onclick="loadImage()" style="background:#0a8043;">🔄 Refresh</button>
+  </div>
+
+  <div class="output">
+    <label>Frigate coordinates (normalized 0~1):</label>
+    <code id="coordOutput">(Click on the image to mark the door zone)</code>
+    <div class="points-list" id="pointsList"></div>
+  </div>
+
+</div>
+
+<script>
+// --- 配置 ---
+// Frigate 端口从 URL 参数读取，如 ?port=5001，默认 5001
+const params = new URLSearchParams(window.location.search);
+const frigatePort = params.get('port') || '5001';
+const FRIGATE_URL = `http://${window.location.hostname}:${frigatePort}`;
+const SNAPSHOT_URL = `${FRIGATE_URL}/api/cat_cam/latest.jpg`;
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const coordOutput = document.getElementById('coordOutput');
+const pointsList = document.getElementById('pointsList');
+
+let points = [];      // 归一化坐标 [{x, y}, ...]
+let img = new Image();
+let imgLoaded = false;
+
+// 画面尺寸（canvas 显示尺寸）
+const DISPLAY_WIDTH = 700;
+let displayHeight = 394; // 默认 16:9
+
+function loadImage() {
+  img = new Image();
+  img.onload = function() {
+    const ratio = img.naturalHeight / img.naturalWidth;
+    displayHeight = Math.round(DISPLAY_WIDTH * ratio);
+    canvas.width = DISPLAY_WIDTH;
+    canvas.height = displayHeight;
+    imgLoaded = true;
+    redraw();
+  };
+  img.onerror = function() {
+    canvas.width = DISPLAY_WIDTH;
+    canvas.height = displayHeight;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#e94560';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠️ Cannot load image. Make sure Frigate is running.', canvas.width/2, canvas.height/2 - 10);
+    ctx.fillStyle = '#888';
+    ctx.font = '13px sans-serif';
+    ctx.fillText(`Tried: ${SNAPSHOT_URL}`, canvas.width/2, canvas.height/2 + 15);
+  };
+  // 加上时间戳防缓存
+  img.src = SNAPSHOT_URL + '?t=' + Date.now();
+}
+
+function redraw() {
+  if (!imgLoaded) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  if (points.length === 0) return;
+
+  // 画多边形填充
+  if (points.length >= 3) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x * canvas.width, points[0].y * canvas.height);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x * canvas.width, points[i].y * canvas.height);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(233, 69, 96, 0.2)';
+    ctx.fill();
+  }
+
+  // 画线
+  ctx.beginPath();
+  ctx.moveTo(points[0].x * canvas.width, points[0].y * canvas.height);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x * canvas.width, points[i].y * canvas.height);
+  }
+  if (points.length >= 3) ctx.closePath();
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // 画点
+  points.forEach((p, i) => {
+    const px = p.x * canvas.width;
+    const py = p.y * canvas.height;
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#e94560';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 序号
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.fillText(i + 1, px + 8, py - 8);
+  });
+
+  updateOutput();
+}
+
+function updateOutput() {
+  if (points.length === 0) {
+    coordOutput.textContent = '(Click on the image to mark the door zone)';
+    coordOutput.classList.remove('copied');
+    pointsList.textContent = '';
+    return;
+  }
+  const coordStr = points.map(p =>
+    `${p.x.toFixed(3)},${p.y.toFixed(3)}`
+  ).join(',');
+  coordOutput.textContent = coordStr;
+  coordOutput.classList.remove('copied');
+
+  pointsList.textContent = points.map((p, i) =>
+    `P${i+1}: (${(p.x*100).toFixed(1)}%, ${(p.y*100).toFixed(1)}%)`
+  ).join('  |  ');
+}
+
+canvas.addEventListener('click', function(e) {
+  if (!imgLoaded) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  points.push({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) });
+  redraw();
+});
+
+function undoPoint() {
+  points.pop();
+  redraw();
+  updateOutput();
+}
+
+function clearPoints() {
+  points = [];
+  redraw();
+  updateOutput();
+}
+
+function copyCoords() {
+  if (points.length < 3) {
+    alert('Please mark at least 3 points!');
+    return;
+  }
+  const coordStr = points.map(p =>
+    `${p.x.toFixed(3)},${p.y.toFixed(3)}`
+  ).join(',');
+  navigator.clipboard.writeText(coordStr).then(() => {
+    coordOutput.classList.add('copied');
+    coordOutput.textContent = '✅ Copied! ' + coordStr;
+    setTimeout(() => {
+      coordOutput.classList.remove('copied');
+      coordOutput.textContent = coordStr;
+    }, 2000);
+  });
+}
+
+// 初始加载
+loadImage();
+</script>
+
+</body>
+</html>

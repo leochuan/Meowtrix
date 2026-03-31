@@ -1,0 +1,83 @@
+# ============================================================
+# Frigate NVR Config - Cat Escape Monitor
+# ============================================================
+# Docs: https://docs.frigate.video/configuration/
+#
+# Environment variable substitution: {FRIGATE_RTSP_URL} is injected
+# by docker-compose from .env. No need to hardcode RTSP addresses here.
+
+mqtt:
+  host: mosquitto
+  port: 1883
+  topic_prefix: frigate
+  client_id: frigate_cat_tracker
+
+# Detector — CPU for now. See README for migration guide.
+detectors:
+  cpu1:
+    type: cpu
+    num_threads: 4
+
+cameras:
+  cat_cam:
+    enabled: true
+
+    ffmpeg:
+      inputs:
+        # RTSP address injected from .env via RTSP_URL; edit .env to change
+        - path: "{FRIGATE_RTSP_URL}"
+          roles:
+            - detect
+            - record
+      hwaccel_args: preset-rpi-64-h264
+
+    detect:
+      width: 1280
+      height: 720
+      fps: 5
+
+    objects:
+      track:
+        - cat
+      filters:
+        cat:
+          min_area: 5000
+          max_area: 500000
+          min_score: 0.5
+          threshold: 0.7
+
+    # Zone definition - door_zone
+    #
+    # To modify: open Zone Picker (http://localhost:<ZONE_PICKER_PORT>, default 8090),
+    # draw the zone, copy coordinates and paste below.
+    #
+    # Format: normalized 0~1 coordinates, x,y pairs forming a polygon.
+    zones:
+      door_zone:
+        coordinates: 0.402,0.927,0.439,0.463,0.671,0.493,0.646,0.960
+        objects:
+          - cat
+
+    snapshots:
+      enabled: true
+      bounding_box: true
+      crop: false
+      retain:
+        default: 7
+
+    record:
+      enabled: true
+
+    motion:
+      threshold: 30
+      contour_area: 50
+
+snapshots:
+  enabled: true
+  retain:
+    default: 7
+
+logger:
+  default: info
+  logs:
+    frigate.event: debug
