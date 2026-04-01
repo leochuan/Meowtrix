@@ -1,0 +1,6 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY zone-picker.html /app/index.html
+COPY zone-picker-server.py /app/server.py
+EXPOSE 80
+CMD ["python", "/app/server.py"]

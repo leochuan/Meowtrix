@@ -41,7 +41,7 @@ services:
       - "${FRIGATE_PORT:-5001}:5000"
       - "8971:8971"
     volumes:
-      - ./config/frigate/config.yml:/config/config.yml:ro
+      - ./config/frigate/config.yml:/config/config.yml
       - ./storage/frigate:/media/frigate
       - type: tmpfs
         target: /tmp/cache
@@ -55,17 +55,45 @@ services:
       - cat-tracker-net
 
   # ----------------------------------------------------------
+  # Monitor - Python MQTT listener + Bark push
+  # ----------------------------------------------------------
+  monitor:
+    build: .
+    container_name: monitor
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+      frigate:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - MQTT_HOST=mosquitto
+      - FRIGATE_HOST=frigate
+      - FRIGATE_PORT=5000
+    networks:
+      - cat-tracker-net
+
+  # ----------------------------------------------------------
   # Zone Picker - visual zone coordinate tool
   # Visit http://localhost:${ZONE_PICKER_PORT} to draw door_zone
   # ----------------------------------------------------------
   zone-picker:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile.zone-picker
     container_name: zone-picker
     restart: unless-stopped
+    depends_on:
+      frigate:
+        condition: service_started
     ports:
       - "${ZONE_PICKER_PORT:-8090}:80"
     volumes:
-      - ./zone-picker.html:/usr/share/nginx/html/index.html:ro
+      - ./config/frigate/config.yml:/config/config.yml
+    environment:
+      - FRIGATE_URL=http://frigate:5000
     networks:
       - cat-tracker-net
 

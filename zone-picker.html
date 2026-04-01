@@ -20,6 +20,12 @@
   .btn-clear:hover { background: #777; }
   .btn-copy { background: #0f3460; color: #fff; }
   .btn-copy:hover { background: #16478a; }
+  .btn-save { background: #0a8043; color: #fff; font-weight: bold; }
+  .btn-save:hover { background: #0c9a50; }
+  .btn-save:disabled { background: #555; cursor: not-allowed; }
+  .status-msg { text-align: center; padding: 8px; border-radius: 6px; font-size: 0.9em; display: none; max-width: 700px; width: 100%; }
+  .status-msg.success { display: block; background: #0a8043; color: #fff; }
+  .status-msg.error { display: block; background: #e94560; color: #fff; }
   .output { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 15px; width: 100%; max-width: 700px; }
   .output label { font-size: 0.85em; color: #aaa; }
   .output code { display: block; margin-top: 5px; padding: 10px; background: #0d1b3e; border-radius: 4px; font-size: 1em; color: #e94560; word-break: break-all; min-height: 1.5em; }
@@ -40,8 +46,7 @@
     <strong>How to use:</strong><br>
     1. The latest camera frame from Frigate loads automatically below<br>
     2. Click to mark the corners of the door zone (at least 3 points, 4-6 recommended)<br>
-    3. Click <strong>"Copy Coords"</strong> and paste into config.yml → door_zone → coordinates<br>
-    4. Run <code style="display:inline;padding:2px 6px;">docker compose restart frigate</code> to apply
+    3. Click <strong>"Save &amp; Apply"</strong> to update Frigate config and restart automatically
   </div>
 
   <div class="canvas-wrap" id="canvasWrap">
@@ -52,8 +57,11 @@
     <button class="btn-undo" onclick="undoPoint()">↩ Undo</button>
     <button class="btn-clear" onclick="clearPoints()">🗑 Clear</button>
     <button class="btn-copy" onclick="copyCoords()">📋 Copy Coords</button>
+    <button class="btn-save" id="btnSave" onclick="saveZone()">💾 Save &amp; Apply</button>
     <button class="btn-copy" onclick="loadImage()" style="background:#0a8043;">🔄 Refresh</button>
   </div>
+
+  <div class="status-msg" id="statusMsg"></div>
 
   <div class="output">
     <label>Frigate coordinates (normalized 0~1):</label>
@@ -218,8 +226,67 @@ function copyCoords() {
   });
 }
 
+function showStatus(msg, ok) {
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = 'status-msg ' + (ok ? 'success' : 'error');
+  if (ok) setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+async function saveZone() {
+  if (points.length < 3) {
+    alert('Please mark at least 3 points!');
+    return;
+  }
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true;
+  btn.textContent = '⏳ Saving...';
+
+  const coordStr = points.map(p =>
+    `${p.x.toFixed(3)},${p.y.toFixed(3)}`
+  ).join(',');
+
+  try {
+    const resp = await fetch('/api/zone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ coordinates: coordStr }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      showStatus('❌ Save failed: ' + (data.error || 'unknown error'), false);
+    } else if (!data.frigate_restarted) {
+      showStatus('⚠️ Config saved, but Frigate restart failed: ' + data.restart_message, false);
+    } else {
+      showStatus('✅ Zone saved! Frigate is restarting...', true);
+    }
+  } catch (e) {
+    showStatus('❌ Request failed: ' + e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '💾 Save & Apply';
+  }
+}
+
+async function loadExistingZone() {
+  try {
+    const resp = await fetch('/api/zone');
+    const data = await resp.json();
+    if (data.coordinates) {
+      const parts = data.coordinates.split(',').map(Number);
+      for (let i = 0; i < parts.length; i += 2) {
+        points.push({ x: parts[i], y: parts[i + 1] });
+      }
+      redraw();
+    }
+  } catch (e) {
+    // silently ignore — first load or server not ready
+  }
+}
+
 // 初始加载
 loadImage();
+loadExistingZone();
 </script>
 
 </body>

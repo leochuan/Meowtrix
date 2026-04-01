@@ -34,6 +34,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 # ============================================================
 
 MINI_IP = os.getenv("MINI_IP", "192.168.1.100")
+FRIGATE_HOST = os.getenv("FRIGATE_HOST", MINI_IP)
 FRIGATE_PORT = os.getenv("FRIGATE_PORT", "5001")
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -42,7 +43,7 @@ BARK_DEVICE_KEY = os.getenv("BARK_DEVICE_KEY", "your_bark_device_key_here")
 TARGET_ZONE = os.getenv("TARGET_ZONE", "door_zone")
 EVENT_COOLDOWN = int(os.getenv("EVENT_COOLDOWN", "30"))
 
-FRIGATE_BASE_URL = f"http://{MINI_IP}:{FRIGATE_PORT}"
+FRIGATE_BASE_URL = f"http://{FRIGATE_HOST}:{FRIGATE_PORT}"
 
 # ============================================================
 # Logging
@@ -128,7 +129,6 @@ def send_bark_notification(
     if image_url:
         payload["icon"] = image_url
         payload["image"] = image_url
-        payload["url"] = FRIGATE_BASE_URL
 
     try:
         resp = requests.post(url, json=payload, timeout=10)
@@ -215,6 +215,9 @@ def on_connect(client: mqtt.Client, userdata, flags, rc, properties=None):
         logger.info(f"✅ Connected to MQTT: {MQTT_HOST}:{MQTT_PORT}")
         client.subscribe("frigate/events")
         logger.info("📡 Subscribed: frigate/events")
+        # Ensure detection is always enabled on startup
+        client.publish("frigate/cat_cam/detect/set", "ON", retain=True)
+        logger.info("🟢 Enabled detection for cat_cam")
     else:
         logger.error(f"❌ MQTT connection failed, rc={rc}")
 
