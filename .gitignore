@@ -6,10 +6,10 @@ __pycache__/
 venv/
 
 # Environment (contains secrets)
-.env
+frigate/.env
 
 # Persistent data (generated at runtime)
-storage/
+frigate/storage/
 
 # Lite solution
 lite/config.json

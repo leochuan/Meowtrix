@@ -534,8 +534,8 @@ class SentryEngine:
             )
             send_dingtalk(
                 cfg.get("dingtalk_webhook", ""),
-                "Cat Sentry Alert",
-                f"Cat in forbidden zone at {datetime.now().strftime('%H:%M:%S')}",
+                "Cat Sentry Alert!",
+                f"Cat in forbidden zone at {datetime.now().strftime('%H:%M:%S')}!",
                 image_path=snap_path,
             )
 
