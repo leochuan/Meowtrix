@@ -10,7 +10,7 @@ Keep your cat from sneaking out the door. Two solutions, pick what fits your set
 | **Detection** | YOLOv8 (direct) | Frigate NVR built-in |
 | **Setup** | `pip install` + run | `docker compose up` |
 | **Web UI** | Built-in (live stream + zone drawing + config) | Frigate UI + Zone Picker |
-| **Push channels** | Bark + DingTalk (with screenshot) | Bark |
+| **Push channels** | Bark (iOS, with annotated screenshot) | Bark |
 | **Recording** | Alert snapshots only | Continuous + event recording |
 | **Best for** | Quick setup, single camera, low-power devices | Multi-camera, NVR, long-term recording |
 | **Dependencies** | Python + OpenCV + Ultralytics | Docker |
@@ -30,6 +30,8 @@ Keep your cat from sneaking out the door. Two solutions, pick what fits your set
 │   ├── index.html            # Web UI (Chinese)
 │   ├── config.json.example   # Config template
 │   ├── requirements.txt      # Python dependencies
+│   ├── build_exe.bat         # Windows exe build script
+│   ├── build.spec            # PyInstaller spec
 │   └── README.md
 ├── frigate/                  # Docker-based Frigate solution
 │   ├── docker-compose.yml    # All services
@@ -41,6 +43,6 @@ Keep your cat from sneaking out the door. Two solutions, pick what fits your set
 │   ├── .env.example          # Config template
 │   ├── requirements.txt
 │   ├── config/               # Frigate + Mosquitto configs
+│   ├── storage/              # Runtime data (gitignored)
 │   └── README.md
-└── storage/                  # Runtime data (gitignored)
 ```

@@ -9,7 +9,7 @@ No Docker, no Frigate, no MQTT. Just RTSP + YOLO + push notifications.
 - **Motion-gated YOLO inference** — only wakes the model when pixels change, saving CPU
 - **Polygon forbidden zone** — draw any shape on the live camera feed
 - **Enter/leave state machine** — alerts on entry; must leave and re-enter to trigger again
-- **Dual push** — Bark (iOS) + DingTalk (with base64 screenshot, no public URL needed)
+- **Dual push** — Bark (iOS) with annotated screenshot in push notification
 - **Annotated snapshots** — bounding boxes, confidence labels, zone outline on full-frame captures
 - **Auto hardware acceleration** — MPS (Apple Silicon) / CUDA / CPU
 - **All config via Web UI** — RTSP URL, thresholds, zone, push URLs, all editable at runtime
@@ -38,7 +38,6 @@ All settings are stored in `config.json` and editable via the Web UI:
 |-----------|-------------|---------|
 | `rtsp_url` | RTSP stream URL | — |
 | `bark_urls` | Bark push URLs (array, one per account) | `[]` |
-| `dingtalk_webhook` | DingTalk robot webhook URL | `""` |
 | `zone_points` | Polygon vertices as normalized `[x, y]` pairs | `[]` |
 | `yolo_model` | YOLO model file (`yolov8n.pt` / `yolov8s.pt` / `yolov8m.pt`) | `yolov8s.pt` |
 | `yolo_conf` | Confidence threshold (lower = sensitive, higher = strict) | `0.45` |
@@ -72,3 +71,15 @@ RTSP frame → crop ROI region → motion detect (cv2.absdiff)
 - **No motion → YOLO doesn't run** (near-zero CPU)
 - **YOLO runs only on the small ROI crop**, not the full frame
 - **State machine**: alert fires once on entry, re-arms only after cat leaves
+
+## Windows Packaging
+
+Build a standalone `.exe` that runs without Python installed:
+
+```bash
+# On Windows, double-click build_exe.bat, or:
+pip install pyinstaller
+pyinstaller build.spec
+```
+
+Output in `dist/cat_sentry_pro/` — copy the folder to any Windows PC and run `cat_sentry_pro.exe`.
