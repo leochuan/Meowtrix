@@ -11,6 +11,11 @@ venv/
 # Persistent data (generated at runtime)
 storage/
 
+# Cat Sentry
+cat-sentry/config.json
+cat-sentry/snapshots/
+cat-sentry/yolov8*.pt
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>猫咪哨兵 Pro</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; }
+  .app { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 6px; font-size: 1.5em; }
+  .subtitle { text-align: center; color: #888; font-size: 0.85em; margin-bottom: 20px; }
+
+  /* Layout: two columns */
+  .main { display: flex; gap: 20px; flex-wrap: wrap; }
+  .col-left { flex: 1; min-width: 400px; }
+  .col-right { width: 320px; }
+
+  /* Canvas */
+  .canvas-wrap { position: relative; cursor: crosshair; border: 2px solid #333; border-radius: 8px; overflow: hidden; background: #111; width: 700px; }
+  canvas { display: block; width: 100%; }
+
+  /* Buttons */
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  button { padding: 7px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85em; transition: 0.15s; color: #fff; }
+  .btn-danger { background: #e94560; }
+  .btn-danger:hover { background: #c73e54; }
+  .btn-secondary { background: #555; }
+  .btn-secondary:hover { background: #777; }
+  .btn-primary { background: #0a8043; font-weight: 600; }
+  .btn-primary:hover { background: #0c9a50; }
+  .btn-primary:disabled { background: #444; cursor: not-allowed; }
+  .btn-blue { background: #0f3460; }
+  .btn-blue:hover { background: #16478a; }
+
+  /* Config panel */
+  .panel { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 16px; margin-bottom: 14px; }
+  .panel h2 { font-size: 1em; margin-bottom: 12px; color: #ccc; border-bottom: 1px solid #0f3460; padding-bottom: 6px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 0.8em; color: #999; margin-bottom: 3px; }
+  .field input, .field select, .field textarea { width: 100%; padding: 6px 10px; border: 1px solid #333; border-radius: 4px; background: #0d1b3e; color: #eee; font-size: 0.9em; }
+  .field input:focus, .field textarea:focus { outline: none; border-color: #0a8043; }
+  .field textarea { resize: vertical; min-height: 50px; font-family: monospace; }
+
+  .field .hint { font-size: 0.7em; color: #666; margin-top: 2px; line-height: 1.4; }
+
+  /* Status badge */
+  .status-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .badge { padding: 4px 12px; border-radius: 12px; font-size: 0.8em; font-weight: 600; }
+  .badge-running { background: #0a8043; }
+  .badge-stopped { background: #e94560; }
+  .badge-error { background: #c73e00; }
+  .alert-count { color: #888; font-size: 0.85em; }
+
+  /* Toast */
+  .toast { position: fixed; top: 16px; right: 16px; padding: 10px 18px; border-radius: 8px; font-size: 0.9em; z-index: 100; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .toast.success { background: #0a8043; color: #fff; }
+  .toast.error { background: #e94560; color: #fff; }
+
+  /* Points list */
+  .points-info { font-size: 0.75em; color: #666; margin-top: 6px; word-break: break-all; }
+
+  @media (max-width: 800px) {
+    .col-right { width: 100%; }
+    .col-left { min-width: unset; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <h1>🐱 猫咪哨兵 Pro</h1>
+  <p class="subtitle">在摄像头画面上绘制禁区多边形，配置参数后启动监控</p>
+
+  <div class="main">
+    <!-- Left: Camera + zone drawing -->
+    <div class="col-left">
+      <div class="canvas-wrap" id="canvasWrap" style="width:700px; height:394px;">
+        <img id="streamImg" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; z-index:0;">
+        <canvas id="canvas" width="700" height="394" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:1;"></canvas>
+      </div>
+      <div class="controls">
+        <button class="btn-danger" onclick="undoPoint()">↩ 撤销</button>
+        <button class="btn-secondary" onclick="clearPoints()">🗑 清除区域</button>
+      </div>
+      <div class="points-info" id="pointsInfo"></div>
+    </div>
+
+    <!-- Right: Config + Status -->
+    <div class="col-right">
+      <!-- Status -->
+      <div class="panel">
+        <h2>监控状态</h2>
+        <div class="status-bar">
+          <span class="badge badge-stopped" id="statusBadge">已停止</span>
+          <span class="alert-count" id="alertCount">0 次告警</span>
+        </div>
+        <div class="controls" style="margin-top:0">
+          <button class="btn-primary" id="btnStart" onclick="sentryStart()">▶ 启动</button>
+          <button class="btn-danger" id="btnStop" onclick="sentryStop()">⏹ 停止</button>
+        </div>
+      </div>
+
+      <!-- Connection -->
+      <div class="panel">
+        <h2>连接设置</h2>
+        <div class="field">
+          <label>RTSP 视频流地址</label>
+          <input type="text" id="cfgRtspUrl" placeholder="rtsp://192.168.1.x:8080/video">
+          <div class="hint">摄像头的 RTSP 流地址，如 IP Webcam 的 h264 地址</div>
+        </div>
+        <div class="field">
+          <label>Bark 推送地址（每行一个）</label>
+          <textarea id="cfgBarkUrls" rows="3" placeholder="https://api.day.app/KEY1&#10;https://api.day.app/KEY2"></textarea>
+          <div class="hint">iOS Bark App 的推送 Key 地址，支持多人接收，留空不推</div>
+        </div>
+        <div class="field">
+          <label>钉钉机器人 Webhook</label>
+          <input type="text" id="cfgDingtalkWebhook" placeholder="https://oapi.dingtalk.com/robot/send?access_token=...">
+          <div class="hint">钉钉自定义机器人地址，告警时发送带截图的消息，留空不推</div>
+        </div>
+      </div>
+
+      <!-- Detection -->
+      <div class="panel">
+        <h2>检测参数</h2>
+        <div class="field">
+          <label>YOLO 置信度阈值（0.01–1.0）</label>
+          <input type="number" id="cfgYoloConf" step="0.01" min="0.01" max="1">
+          <div class="hint">越低越灵敏（误报多），越高越严格（可能漏报）。推荐 0.3–0.5</div>
+        </div>
+        <div class="field">
+          <label>运动检测灵敏度</label>
+          <input type="number" id="cfgMotionThreshold" min="0" step="500">
+          <div class="hint">像素变化量阈值，越小越灵敏。静止场景推荐 3000–5000，有风/光变推荐 8000+</div>
+        </div>
+        <div class="field">
+          <label>检测区域外扩比例</label>
+          <input type="number" id="cfgRoiPadding" step="0.05" min="0" max="1">
+          <div class="hint">在禁区多边形外扩展此比例作为 YOLO 检测区域，0.2 = 外扩 20%</div>
+        </div>
+        <div class="field">
+          <label>告警冷却时间（秒）</label>
+          <input type="number" id="cfgCooldown" min="0">
+          <div class="hint">当前为状态机模式：猫离开禁区后重新进入才告警，此参数暂未使用</div>
+        </div>
+        <div class="field">
+          <label>截图保存目录</label>
+          <input type="text" id="cfgSnapshotDir">
+          <div class="hint">告警截图存放路径，相对于脚本目录</div>
+        </div>
+      </div>
+
+      <button class="btn-primary" style="width:100%;padding:10px;" onclick="saveAll()">💾 保存配置和区域</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const streamImg = document.getElementById('streamImg');
+const canvasWrap = document.getElementById('canvasWrap');
+
+let points = [];       // normalized [{x, y}, ...]
+let streamReady = false;
+const DISPLAY_W = 700;
+let displayH = 394;
+
+// ---- MJPEG stream ----
+
+function startStream() {
+  streamImg.src = '/api/stream?t=' + Date.now();
+  streamImg.onload = function() {
+    if (!streamReady) {
+      streamReady = true;
+      const ratio = streamImg.naturalHeight / streamImg.naturalWidth;
+      displayH = Math.round(DISPLAY_W * ratio);
+      canvas.width = DISPLAY_W;
+      canvas.height = displayH;
+      canvasWrap.style.width = DISPLAY_W + 'px';
+      canvasWrap.style.height = displayH + 'px';
+      streamImg.style.display = 'block';
+      // Redraw zone overlay now that canvas is properly sized
+      redraw();
+    }
+  };
+  streamImg.onerror = () => {
+    streamReady = false;
+    canvas.width = DISPLAY_W;
+    canvas.height = displayH;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#e94560';
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('无法连接视频流，请检查 RTSP 地址', canvas.width / 2, canvas.height / 2);
+    // Retry after 3s
+    setTimeout(startStream, 3000);
+  };
+}
+
+// ---- Drawing (overlay on transparent canvas above stream) ----
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (points.length === 0) { updatePointsInfo(); return; }
+
+  // Draw ROI (expanded bounding box) if we have >= 3 points
+  if (points.length >= 3) {
+    const padding = parseFloat(document.getElementById('cfgRoiPadding').value) || 0.2;
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    points.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    });
+    const pw = (maxX - minX) * padding;
+    const ph = (maxY - minY) * padding;
+    const rx1 = Math.max(0, minX - pw) * canvas.width;
+    const ry1 = Math.max(0, minY - ph) * canvas.height;
+    const rx2 = Math.min(1, maxX + pw) * canvas.width;
+    const ry2 = Math.min(1, maxY + ph) * canvas.height;
+    // ROI dashed rectangle
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(0, 200, 255, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(rx1, ry1, rx2 - rx1, ry2 - ry1);
+    ctx.setLineDash([]);
+    // ROI label
+    ctx.fillStyle = 'rgba(0, 200, 255, 0.7)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('检测区域 (ROI)', rx1 + 4, ry1 + 13);
+  }
+
+  // Polygon fill (forbidden zone)
+  if (points.length >= 3) {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x * canvas.width, points[0].y * canvas.height);
+    for (let i = 1; i < points.length; i++)
+      ctx.lineTo(points[i].x * canvas.width, points[i].y * canvas.height);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(233, 69, 96, 0.25)';
+    ctx.fill();
+  }
+
+  // Lines
+  ctx.beginPath();
+  ctx.moveTo(points[0].x * canvas.width, points[0].y * canvas.height);
+  for (let i = 1; i < points.length; i++)
+    ctx.lineTo(points[i].x * canvas.width, points[i].y * canvas.height);
+  if (points.length >= 3) ctx.closePath();
+  ctx.strokeStyle = '#e94560';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Dots + labels
+  points.forEach((p, i) => {
+    const px = p.x * canvas.width, py = p.y * canvas.height;
+    ctx.beginPath();
+    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#e94560';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(i + 1, px + 8, py - 8);
+  });
+
+  updatePointsInfo();
+}
+
+function updatePointsInfo() {
+  const el = document.getElementById('pointsInfo');
+  if (points.length === 0) { el.textContent = '在画面上点击标记禁区顶点（至少 3 个点）'; return; }
+  el.textContent = points.map((p, i) =>
+    `点${i + 1}(${(p.x * 100).toFixed(1)}%, ${(p.y * 100).toFixed(1)}%)`
+  ).join('  ');
+}
+
+canvas.addEventListener('click', e => {
+  if (!streamReady) return;
+  const rect = canvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width;
+  const y = (e.clientY - rect.top) / rect.height;
+  points.push({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) });
+  redraw();
+});
+
+function undoPoint() { points.pop(); redraw(); }
+function clearPoints() { points = []; redraw(); }
+
+// ---- Config load/save ----
+
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    const cfg = await resp.json();
+
+    document.getElementById('cfgRtspUrl').value = cfg.rtsp_url || '';
+    document.getElementById('cfgBarkUrls').value = (cfg.bark_urls || []).join('\n');
+    document.getElementById('cfgDingtalkWebhook').value = cfg.dingtalk_webhook || '';
+    document.getElementById('cfgYoloConf').value = cfg.yolo_conf;
+    document.getElementById('cfgMotionThreshold').value = cfg.motion_threshold;
+    document.getElementById('cfgRoiPadding').value = cfg.roi_padding_pct;
+    document.getElementById('cfgCooldown').value = cfg.alert_cooldown_sec;
+    document.getElementById('cfgSnapshotDir').value = cfg.snapshot_dir || 'snapshots';
+
+    // Load zone polygon
+    if (cfg.zone_points && cfg.zone_points.length >= 3) {
+      points = cfg.zone_points.map(p => ({ x: p[0], y: p[1] }));
+      redraw();
+    }
+  } catch (e) {
+    console.warn('Failed to load config', e);
+  }
+}
+
+async function saveAll() {
+  const cfg = {
+    rtsp_url: document.getElementById('cfgRtspUrl').value.trim(),
+    bark_urls: document.getElementById('cfgBarkUrls').value.split('\n').map(s => s.trim()).filter(Boolean),
+    dingtalk_webhook: document.getElementById('cfgDingtalkWebhook').value.trim(),
+    yolo_conf: parseFloat(document.getElementById('cfgYoloConf').value),
+    motion_threshold: parseInt(document.getElementById('cfgMotionThreshold').value),
+    roi_padding_pct: parseFloat(document.getElementById('cfgRoiPadding').value),
+    alert_cooldown_sec: parseInt(document.getElementById('cfgCooldown').value),
+    snapshot_dir: document.getElementById('cfgSnapshotDir').value.trim(),
+    zone_points: points.map(p => [parseFloat(p.x.toFixed(4)), parseFloat(p.y.toFixed(4))]),
+  };
+
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    if (resp.ok) {
+      toast('配置已保存！', 'success');
+    } else {
+      const d = await resp.json();
+      toast('保存失败：' + (d.error || '未知错误'), 'error');
+    }
+  } catch (e) {
+    toast('保存失败：' + e.message, 'error');
+  }
+}
+
+// ---- Sentry control ----
+
+async function sentryStart() {
+  // Save config first so sentry picks up latest
+  await saveAll();
+  try {
+    const resp = await fetch('/api/sentry/start', { method: 'POST' });
+    const d = await resp.json();
+    toast('哨兵：' + d.status, d.status === 'running' ? 'success' : 'error');
+    pollStatus();
+  } catch (e) {
+    toast('启动失败：' + e.message, 'error');
+  }
+}
+
+async function sentryStop() {
+  try {
+    await fetch('/api/sentry/stop', { method: 'POST' });
+    toast('哨兵已停止', 'success');
+    pollStatus();
+  } catch (e) {
+    toast('停止失败：' + e.message, 'error');
+  }
+}
+
+async function pollStatus() {
+  try {
+    const resp = await fetch('/api/status');
+    const d = await resp.json();
+    const badge = document.getElementById('statusBadge');
+    const statusMap = { 'running': '运行中', 'stopped': '已停止' };
+    badge.textContent = statusMap[d.sentry] || d.sentry;
+    badge.className = 'badge ' + (
+      d.sentry === 'running' ? 'badge-running' :
+      d.sentry.startsWith('error') ? 'badge-error' : 'badge-stopped'
+    );
+    document.getElementById('alertCount').textContent = d.alert_count + ' 次告警';
+  } catch (e) { /* ignore */ }
+}
+
+// ---- Toast ----
+
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+// ---- Init ----
+
+loadConfig();
+startStream();
+setInterval(pollStatus, 5000);
+pollStatus();
+</script>
+</body>
+</html>

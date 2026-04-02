@@ -1,0 +1,16 @@
+{
+  "rtsp_url": "rtsp://192.168.1.x:554/Streaming/Channels/101",
+  "bark_urls": [],
+  "dingtalk_webhook": "",
+  "snapshot_dir": "snapshots",
+  "zone_points": [],
+  "roi_padding_pct": 0.2,
+  "motion_threshold": 5000,
+  "yolo_model": "yolov8s.pt",
+  "yolo_conf": 0.45,
+  "alert_cooldown_sec": 10,
+  "cat_class_id": 15,
+  "web_port": 8080,
+  "server_host": "",
+  "sentry_enabled": true
+}
