@@ -62,7 +62,6 @@ HTML_PATH = BASE_DIR / "index.html"
 DEFAULT_CONFIG = {
     "rtsp_url": "",
     "bark_urls": [],
-    "dingtalk_webhook": "",
     "snapshot_dir": "snapshots",
     "zone_points": [],
     "roi_padding_pct": 0.20,
@@ -321,75 +320,6 @@ def send_bark(bark_urls: list[str], title: str, body: str,
             log.error("Bark push to %s failed: %s", url, exc)
 
 
-def send_dingtalk(webhook_url: str, title: str, body: str,
-                  image_path: str | None = None) -> None:
-    """Send alert to DingTalk custom robot. Supports base64 image (no public URL needed)."""
-    if not webhook_url:
-        return
-    import base64
-    import hashlib
-    url = webhook_url.strip()
-    if not url:
-        return
-
-    try:
-        if image_path and Path(image_path).exists():
-            # Send as image message with base64 — works without public URL
-            with open(image_path, "rb") as f:
-                img_data = f.read()
-            b64 = base64.b64encode(img_data).decode()
-            md5 = hashlib.md5(img_data).hexdigest()
-            # First send markdown with text, then send image
-            # DingTalk image msgtype
-            payload = {
-                "msgtype": "actionCard",
-                "actionCard": {
-                    "title": title,
-                    "text": f"### {title}\n\n{body}\n\n![screenshot](data:image/jpeg;base64,{b64})",
-                    "singleTitle": "View Details",
-                    "singleURL": "",
-                },
-            }
-            # actionCard doesn't render data URI, fall back to two messages:
-            # 1) text message
-            text_payload = {
-                "msgtype": "markdown",
-                "markdown": {
-                    "title": title,
-                    "text": f"### 🐱 {title}\n\n{body}",
-                },
-            }
-            req_lib.post(url, json=text_payload, timeout=10)
-            # 2) image message (base64 + md5, no public URL needed)
-            img_payload = {
-                "msgtype": "image",
-                "image": {
-                    "base64": b64,
-                    "md5": md5,
-                },
-            }
-            resp = req_lib.post(url, json=img_payload, timeout=10)
-        else:
-            payload = {
-                "msgtype": "markdown",
-                "markdown": {
-                    "title": title,
-                    "text": f"### 🐱 {title}\n\n{body}",
-                },
-            }
-            resp = req_lib.post(url, json=payload, timeout=10)
-
-        if resp.ok:
-            data = resp.json()
-            if data.get("errcode", 0) == 0:
-                log.info("DingTalk notification sent")
-            else:
-                log.warning("DingTalk error: %s", data.get("errmsg", "unknown"))
-        else:
-            log.warning("DingTalk responded %s: %s", resp.status_code, resp.text[:200])
-    except req_lib.RequestException as exc:
-        log.error("DingTalk push failed: %s", exc)
-
 # ---------------------------------------------------------------------------
 # Sentry engine — runs in its own thread
 # ---------------------------------------------------------------------------
@@ -526,16 +456,11 @@ class SentryEngine:
             log.warning("*** ALERT: Cat entered forbidden zone! ***")
             snap_path = save_snapshot(frame, cfg["snapshot_dir"],
                                       detections=detections, zone_poly=poly_px)
+            alert_time = datetime.now().strftime('%H:%M:%S')
             send_bark(
                 cfg["bark_urls"],
-                "Cat Sentry Alert",
-                f"Cat in forbidden zone at {datetime.now().strftime('%H:%M:%S')}",
-                image_path=snap_path,
-            )
-            send_dingtalk(
-                cfg.get("dingtalk_webhook", ""),
-                "Cat Sentry Alert!",
-                f"Cat in forbidden zone at {datetime.now().strftime('%H:%M:%S')}!",
+                "猫咪越狱警报",
+                f"猫咪闯入禁区！时间：{alert_time}",
                 image_path=snap_path,
             )
 

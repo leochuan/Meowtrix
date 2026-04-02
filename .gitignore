@@ -15,6 +15,9 @@ frigate/storage/
 lite/config.json
 lite/snapshots/
 lite/yolov8*.pt
+lite/build/
+lite/dist/
+lite/*.spec.bak
 
 # OS
 .DS_Store

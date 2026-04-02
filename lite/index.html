@@ -115,11 +115,6 @@
           <textarea id="cfgBarkUrls" rows="3" placeholder="https://api.day.app/KEY1&#10;https://api.day.app/KEY2"></textarea>
           <div class="hint">iOS Bark App 的推送 Key 地址，支持多人接收，留空不推</div>
         </div>
-        <div class="field">
-          <label>钉钉机器人 Webhook</label>
-          <input type="text" id="cfgDingtalkWebhook" placeholder="https://oapi.dingtalk.com/robot/send?access_token=...">
-          <div class="hint">钉钉自定义机器人地址，告警时发送带截图的消息，留空不推</div>
-        </div>
       </div>
 
       <!-- Detection -->
@@ -307,7 +302,6 @@ async function loadConfig() {
 
     document.getElementById('cfgRtspUrl').value = cfg.rtsp_url || '';
     document.getElementById('cfgBarkUrls').value = (cfg.bark_urls || []).join('\n');
-    document.getElementById('cfgDingtalkWebhook').value = cfg.dingtalk_webhook || '';
     document.getElementById('cfgYoloConf').value = cfg.yolo_conf;
     document.getElementById('cfgMotionThreshold').value = cfg.motion_threshold;
     document.getElementById('cfgRoiPadding').value = cfg.roi_padding_pct;
@@ -328,7 +322,6 @@ async function saveAll() {
   const cfg = {
     rtsp_url: document.getElementById('cfgRtspUrl').value.trim(),
     bark_urls: document.getElementById('cfgBarkUrls').value.split('\n').map(s => s.trim()).filter(Boolean),
-    dingtalk_webhook: document.getElementById('cfgDingtalkWebhook').value.trim(),
     yolo_conf: parseFloat(document.getElementById('cfgYoloConf').value),
     motion_threshold: parseInt(document.getElementById('cfgMotionThreshold').value),
     roi_padding_pct: parseFloat(document.getElementById('cfgRoiPadding').value),
