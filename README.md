@@ -10,7 +10,7 @@ Keep your cat from sneaking out the door. Two solutions, pick what fits your set
 | **Detection** | YOLOv8 (direct) | Frigate NVR built-in |
 | **Setup** | `pip install` + run | `docker compose up` |
 | **Web UI** | Built-in (live stream + zone drawing + config) | Frigate UI + Zone Picker |
-| **Push channels** | Bark (iOS, with annotated screenshot) | Bark |
+| **Push channels** | Bark (iOS) + Feishu (with screenshot) | Bark |
 | **Recording** | Alert snapshots only | Continuous + event recording |
 | **Best for** | Quick setup, single camera, low-power devices | Multi-camera, NVR, long-term recording |
 | **Dependencies** | Python + OpenCV + Ultralytics | Docker |

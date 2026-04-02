@@ -6,10 +6,12 @@ No Docker, no Frigate, no MQTT. Just RTSP + YOLO + push notifications.
 ## Features
 
 - **Real-time MJPEG preview** in browser with polygon zone drawing
+- **Draggable zone points** — click to add, drag to adjust polygon vertices
 - **Motion-gated YOLO inference** — only wakes the model when pixels change, saving CPU
 - **Polygon forbidden zone** — draw any shape on the live camera feed
 - **Enter/leave state machine** — alerts on entry; must leave and re-enter to trigger again
-- **Dual push** — Bark (iOS) with annotated screenshot in push notification
+- **Bark push** (iOS) with annotated screenshot
+- **Feishu push** (飞书) with image card — screenshots uploaded via Feishu API
 - **Annotated snapshots** — bounding boxes, confidence labels, zone outline on full-frame captures
 - **Auto hardware acceleration** — MPS (Apple Silicon) / CUDA / CPU
 - **All config via Web UI** — RTSP URL, thresholds, zone, push URLs, all editable at runtime
@@ -27,8 +29,9 @@ python cat_sentry_pro.py
 
 1. The live camera feed streams automatically in the browser
 2. Click to draw a polygon around the forbidden zone (at least 3 points)
-3. Configure detection parameters on the right panel
-4. Click **Save** then **Start**
+3. Drag existing points to fine-tune the zone shape
+4. Configure detection parameters on the right panel
+5. Click **Save** then **Start**
 
 ## Configuration
 
@@ -38,6 +41,9 @@ All settings are stored in `config.json` and editable via the Web UI:
 |-----------|-------------|---------|
 | `rtsp_url` | RTSP stream URL | — |
 | `bark_urls` | Bark push URLs (array, one per account) | `[]` |
+| `feishu_webhook` | Feishu bot webhook URL | `""` |
+| `feishu_app_id` | Feishu app ID (for image upload) | `""` |
+| `feishu_app_secret` | Feishu app secret | `""` |
 | `zone_points` | Polygon vertices as normalized `[x, y]` pairs | `[]` |
 | `yolo_model` | YOLO model file (`yolov8n.pt` / `yolov8s.pt` / `yolov8m.pt`) | `yolov8s.pt` |
 | `yolo_conf` | Confidence threshold (lower = sensitive, higher = strict) | `0.45` |

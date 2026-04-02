@@ -72,6 +72,9 @@ DEFAULT_CONFIG = {
     "cat_class_id": 15,
     "web_port": 8080,
     "server_host": "",
+    "feishu_webhook": "",
+    "feishu_app_id": "",
+    "feishu_app_secret": "",
     "sentry_enabled": True,
 }
 
@@ -288,7 +291,7 @@ def send_bark(bark_urls: list[str], title: str, body: str,
               image_path: str | None = None) -> None:
     if not bark_urls:
         return
-    # Build image URL for Bark (served by our own HTTP server)
+    # Build image URL for Bark (local server)
     image_url = ""
     if image_path:
         cfg = get_config()
@@ -318,6 +321,104 @@ def send_bark(bark_urls: list[str], title: str, body: str,
                 log.warning("Bark %s responded %s: %s", url, resp.status_code, resp.text[:200])
         except req_lib.RequestException as exc:
             log.error("Bark push to %s failed: %s", url, exc)
+
+
+def _feishu_get_token(app_id: str, app_secret: str) -> str | None:
+    """Get Feishu tenant_access_token."""
+    try:
+        resp = req_lib.post(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": app_id, "app_secret": app_secret},
+            timeout=10,
+        )
+        data = resp.json()
+        if data.get("code") == 0:
+            return data["tenant_access_token"]
+        log.warning("Feishu token error: %s", data.get("msg"))
+    except Exception as exc:
+        log.error("Feishu token request failed: %s", exc)
+    return None
+
+
+def _feishu_upload_image(token: str, image_path: str) -> str | None:
+    """Upload image to Feishu and return image_key."""
+    try:
+        with open(image_path, "rb") as f:
+            resp = req_lib.post(
+                "https://open.feishu.cn/open-apis/im/v1/images",
+                headers={"Authorization": f"Bearer {token}"},
+                data={"image_type": "message"},
+                files={"image": (Path(image_path).name, f, "image/jpeg")},
+                timeout=30,
+            )
+        data = resp.json()
+        if data.get("code") == 0:
+            return data["data"]["image_key"]
+        log.warning("Feishu image upload error: %s", data.get("msg"))
+    except Exception as exc:
+        log.error("Feishu image upload failed: %s", exc)
+    return None
+
+
+def send_feishu(webhook_url: str, app_id: str, app_secret: str,
+                title: str, body: str, image_path: str | None = None) -> None:
+    """Send alert to Feishu custom bot with optional image."""
+    if not webhook_url:
+        return
+    url = webhook_url.strip()
+    if not url:
+        return
+
+    try:
+        # Try to upload image if app credentials are configured
+        image_key = ""
+        if image_path and app_id and app_secret:
+            token = _feishu_get_token(app_id, app_secret)
+            if token:
+                image_key = _feishu_upload_image(token, image_path) or ""
+
+        if image_key:
+            # Send rich card with image
+            payload = {
+                "msg_type": "interactive",
+                "card": {
+                    "header": {
+                        "title": {"tag": "plain_text", "content": f"🐱 {title}"},
+                        "template": "red",
+                    },
+                    "elements": [
+                        {"tag": "markdown", "content": body},
+                        {"tag": "img", "img_key": image_key,
+                         "alt": {"tag": "plain_text", "content": "告警截图"}},
+                    ],
+                },
+            }
+        else:
+            # Text-only fallback
+            payload = {
+                "msg_type": "interactive",
+                "card": {
+                    "header": {
+                        "title": {"tag": "plain_text", "content": f"🐱 {title}"},
+                        "template": "red",
+                    },
+                    "elements": [
+                        {"tag": "markdown", "content": body},
+                    ],
+                },
+            }
+
+        resp = req_lib.post(url, json=payload, timeout=10)
+        if resp.ok:
+            data = resp.json()
+            if data.get("code", 0) == 0 and data.get("StatusCode", 0) == 0:
+                log.info("Feishu notification sent")
+            else:
+                log.warning("Feishu error: %s", data.get("msg", data))
+        else:
+            log.warning("Feishu responded %s: %s", resp.status_code, resp.text[:200])
+    except req_lib.RequestException as exc:
+        log.error("Feishu push failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -459,6 +560,14 @@ class SentryEngine:
             alert_time = datetime.now().strftime('%H:%M:%S')
             send_bark(
                 cfg["bark_urls"],
+                "猫咪越狱警报",
+                f"猫咪闯入禁区！时间：{alert_time}",
+                image_path=snap_path,
+            )
+            send_feishu(
+                cfg.get("feishu_webhook", ""),
+                cfg.get("feishu_app_id", ""),
+                cfg.get("feishu_app_secret", ""),
                 "猫咪越狱警报",
                 f"猫咪闯入禁区！时间：{alert_time}",
                 image_path=snap_path,

@@ -117,6 +117,26 @@
         </div>
       </div>
 
+      <!-- Feishu -->
+      <div class="panel">
+        <h2>飞书推送</h2>
+        <div class="field">
+          <label>飞书 Webhook URL</label>
+          <input type="text" id="cfgFeishuWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+          <div class="hint">飞书自定义机器人 Webhook 地址，留空不推</div>
+        </div>
+        <div class="field">
+          <label>飞书 App ID</label>
+          <input type="text" id="cfgFeishuAppId" placeholder="cli_xxxx">
+          <div class="hint">飞书自建应用 App ID，用于上传截图（不填则只发文字）</div>
+        </div>
+        <div class="field">
+          <label>飞书 App Secret</label>
+          <input type="password" id="cfgFeishuAppSecret" placeholder="">
+          <div class="hint">飞书自建应用 App Secret</div>
+        </div>
+      </div>
+
       <!-- Detection -->
       <div class="panel">
         <h2>检测参数</h2>
@@ -258,7 +278,7 @@ function redraw() {
   points.forEach((p, i) => {
     const px = p.x * canvas.width, py = p.y * canvas.height;
     ctx.beginPath();
-    ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.arc(px, py, 7, 0, Math.PI * 2);
     ctx.fillStyle = '#e94560';
     ctx.fill();
     ctx.strokeStyle = '#fff';
@@ -281,12 +301,67 @@ function updatePointsInfo() {
   ).join('  ');
 }
 
-canvas.addEventListener('click', e => {
-  if (!streamReady) return;
+// ---- Point interaction: click to add, drag to move ----
+
+const HIT_RADIUS = 12; // px radius for grabbing a point
+let dragIndex = -1;     // index of point being dragged, -1 = none
+let isDragging = false;
+
+function _getNorm(e) {
   const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX - rect.left) / rect.width;
-  const y = (e.clientY - rect.top) / rect.height;
-  points.push({ x: Math.max(0, Math.min(1, x)), y: Math.max(0, Math.min(1, y)) });
+  return {
+    x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+  };
+}
+
+function _findPoint(nx, ny) {
+  // Return index of point near (nx, ny), or -1
+  for (let i = 0; i < points.length; i++) {
+    const dx = (points[i].x - nx) * canvas.width;
+    const dy = (points[i].y - ny) * canvas.height;
+    if (Math.sqrt(dx * dx + dy * dy) < HIT_RADIUS) return i;
+  }
+  return -1;
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (!streamReady) return;
+  const { x, y } = _getNorm(e);
+  dragIndex = _findPoint(x, y);
+  if (dragIndex >= 0) {
+    isDragging = true;
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (!streamReady) return;
+  const { x, y } = _getNorm(e);
+  if (isDragging && dragIndex >= 0) {
+    points[dragIndex] = { x, y };
+    redraw();
+  } else {
+    // Change cursor when hovering over a point
+    canvas.style.cursor = _findPoint(x, y) >= 0 ? 'grab' : 'crosshair';
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (isDragging) {
+    isDragging = false;
+    dragIndex = -1;
+    canvas.style.cursor = 'crosshair';
+    return; // Don't add a new point after drag
+  }
+});
+
+canvas.addEventListener('click', e => {
+  if (!streamReady || isDragging) return;
+  const { x, y } = _getNorm(e);
+  // Only add a new point if we didn't just drag
+  if (_findPoint(x, y) >= 0) return; // Clicked on existing point, don't duplicate
+  points.push({ x, y });
   redraw();
 });
 
@@ -302,6 +377,9 @@ async function loadConfig() {
 
     document.getElementById('cfgRtspUrl').value = cfg.rtsp_url || '';
     document.getElementById('cfgBarkUrls').value = (cfg.bark_urls || []).join('\n');
+    document.getElementById('cfgFeishuWebhook').value = cfg.feishu_webhook || '';
+    document.getElementById('cfgFeishuAppId').value = cfg.feishu_app_id || '';
+    document.getElementById('cfgFeishuAppSecret').value = cfg.feishu_app_secret || '';
     document.getElementById('cfgYoloConf').value = cfg.yolo_conf;
     document.getElementById('cfgMotionThreshold').value = cfg.motion_threshold;
     document.getElementById('cfgRoiPadding').value = cfg.roi_padding_pct;
@@ -322,6 +400,9 @@ async function saveAll() {
   const cfg = {
     rtsp_url: document.getElementById('cfgRtspUrl').value.trim(),
     bark_urls: document.getElementById('cfgBarkUrls').value.split('\n').map(s => s.trim()).filter(Boolean),
+    feishu_webhook: document.getElementById('cfgFeishuWebhook').value.trim(),
+    feishu_app_id: document.getElementById('cfgFeishuAppId').value.trim(),
+    feishu_app_secret: document.getElementById('cfgFeishuAppSecret').value.trim(),
     yolo_conf: parseFloat(document.getElementById('cfgYoloConf').value),
     motion_threshold: parseInt(document.getElementById('cfgMotionThreshold').value),
     roi_padding_pct: parseFloat(document.getElementById('cfgRoiPadding').value),
