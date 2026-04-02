@@ -176,6 +176,8 @@ class RTSPReader:
                     time.sleep(2)
                     self._cap = self._open(self.url)
                     fail_count = 0
+                else:
+                    time.sleep(0.1)  # yield CPU while skipping bad frames
                 continue
             fail_count = 0
             with self._lock:
@@ -544,43 +546,47 @@ sentry = SentryEngine()
 # HTTP server
 # ---------------------------------------------------------------------------
 
-# Shared preview reader for MJPEG streams (refcounted, avoids per-client RTSP connections)
+# Shared preview reader for MJPEG streams (auto-managed, single instance)
 _preview_lock = threading.Lock()
 _preview_reader: RTSPReader | None = None
-_preview_refcount = 0
+_preview_clients = 0
 
 
-def _get_stream_reader() -> RTSPReader | None:
-    """Return a reader for the MJPEG stream. Prefers sentry reader; falls back to shared preview."""
-    global _preview_reader, _preview_refcount
-    # If sentry is running, just reuse its reader (no refcount needed)
-    if sentry._reader is not None:
-        return sentry._reader
-    # Otherwise, manage a shared preview reader
+def _acquire_stream() -> None:
+    """Register an MJPEG client. Opens preview reader if sentry isn't running."""
+    global _preview_reader, _preview_clients
     with _preview_lock:
-        if _preview_reader is None:
+        _preview_clients += 1
+        if sentry._reader is None and _preview_reader is None:
             cfg = get_config()
-            if not cfg["rtsp_url"]:
-                return None
-            try:
-                _preview_reader = RTSPReader(cfg["rtsp_url"])
-            except RuntimeError:
-                return None
-        _preview_refcount += 1
-        return _preview_reader
+            if cfg["rtsp_url"]:
+                try:
+                    _preview_reader = RTSPReader(cfg["rtsp_url"])
+                except RuntimeError:
+                    pass
 
 
-def _release_stream_reader() -> None:
-    """Release a reference to the shared preview reader. Stops it when refcount hits 0."""
-    global _preview_reader, _preview_refcount
-    # If sentry reader was used, nothing to release
-    if sentry._reader is not None:
-        return
+def _release_stream() -> None:
+    """Unregister an MJPEG client. Stops preview reader when no clients remain."""
+    global _preview_reader, _preview_clients
     with _preview_lock:
-        _preview_refcount = max(0, _preview_refcount - 1)
-        if _preview_refcount == 0 and _preview_reader is not None:
+        _preview_clients = max(0, _preview_clients - 1)
+        if _preview_clients == 0 and _preview_reader is not None:
             _preview_reader.stop()
             _preview_reader = None
+
+
+def _current_reader() -> RTSPReader | None:
+    """Get the best available reader right now. Sentry reader takes priority."""
+    global _preview_reader
+    # Prefer sentry's reader — also release preview if sentry took over
+    if sentry._reader is not None:
+        with _preview_lock:
+            if _preview_reader is not None:
+                _preview_reader.stop()
+                _preview_reader = None
+        return sentry._reader
+    return _preview_reader
 
 
 class SentryHandler(http.server.BaseHTTPRequestHandler):
@@ -690,12 +696,13 @@ class SentryHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
 
-        reader = _get_stream_reader()
-        if reader is None:
-            return
-
+        _acquire_stream()
         try:
             while True:
+                reader = _current_reader()
+                if reader is None:
+                    time.sleep(0.5)
+                    continue
                 frame = reader.read()
                 if frame is None:
                     time.sleep(0.05)
@@ -713,7 +720,7 @@ class SentryHandler(http.server.BaseHTTPRequestHandler):
                     break
                 time.sleep(0.1)  # ~10 fps cap
         finally:
-            _release_stream_reader()
+            _release_stream()
 
     def _update_config(self) -> None:
         try:
