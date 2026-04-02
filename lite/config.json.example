@@ -1,7 +1,9 @@
 {
-  "rtsp_url": "rtsp://192.168.1.x:554/Streaming/Channels/101",
+  "rtsp_url": "",
   "bark_urls": [],
-  "dingtalk_webhook": "",
+  "feishu_webhook": "",
+  "feishu_app_id": "",
+  "feishu_app_secret": "",
   "snapshot_dir": "snapshots",
   "zone_points": [],
   "roi_padding_pct": 0.2,

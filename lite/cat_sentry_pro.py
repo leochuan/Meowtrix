@@ -323,10 +323,15 @@ def send_bark(bark_urls: list[str], title: str, body: str,
             log.error("Bark push to %s failed: %s", url, exc)
 
 
+# No-proxy session for domestic services (Feishu etc.) that shouldn't go through VPN
+_no_proxy = req_lib.Session()
+_no_proxy.trust_env = False  # ignore http_proxy/https_proxy env vars
+
+
 def _feishu_get_token(app_id: str, app_secret: str) -> str | None:
     """Get Feishu tenant_access_token."""
     try:
-        resp = req_lib.post(
+        resp = _no_proxy.post(
             "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
             json={"app_id": app_id, "app_secret": app_secret},
             timeout=10,
@@ -344,7 +349,7 @@ def _feishu_upload_image(token: str, image_path: str) -> str | None:
     """Upload image to Feishu and return image_key."""
     try:
         with open(image_path, "rb") as f:
-            resp = req_lib.post(
+            resp = _no_proxy.post(
                 "https://open.feishu.cn/open-apis/im/v1/images",
                 headers={"Authorization": f"Bearer {token}"},
                 data={"image_type": "message"},
@@ -408,7 +413,7 @@ def send_feishu(webhook_url: str, app_id: str, app_secret: str,
                 },
             }
 
-        resp = req_lib.post(url, json=payload, timeout=10)
+        resp = _no_proxy.post(url, json=payload, timeout=10)
         if resp.ok:
             data = resp.json()
             if data.get("code", 0) == 0 and data.get("StatusCode", 0) == 0:
@@ -457,7 +462,13 @@ class SentryEngine:
         log.info("Loading YOLO model: %s", model_path)
         self._model = YOLO(model_path)
 
-        self._reader = RTSPReader(cfg["rtsp_url"])
+        try:
+            self._reader = RTSPReader(cfg["rtsp_url"])
+        except RuntimeError as exc:
+            self.status = f"error: {exc}"
+            log.error("Cannot start sentry: %s", exc)
+            return self.status
+
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -568,8 +579,8 @@ class SentryEngine:
                 cfg.get("feishu_webhook", ""),
                 cfg.get("feishu_app_id", ""),
                 cfg.get("feishu_app_secret", ""),
-                "猫咪越狱警报",
-                f"猫咪闯入禁区！时间：{alert_time}",
+                "猫咪越狱警报!",
+                f"猫咪闯入禁区！时间：{alert_time}!",
                 image_path=snap_path,
             )
 
@@ -803,7 +814,9 @@ def main() -> None:
     # Auto-start sentry if RTSP URL is configured and zone is defined
     if cfg["rtsp_url"] and len(cfg["zone_points"]) >= 3 and cfg["sentry_enabled"]:
         log.info("Auto-starting sentry engine …")
-        sentry.start()
+        result = sentry.start()
+        if result != "running":
+            log.warning("Auto-start failed: %s — Web UI is still available", result)
 
     server = ThreadedHTTPServer(("0.0.0.0", port), SentryHandler)
     log.info("Web UI available at http://0.0.0.0:%d", port)
